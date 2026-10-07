@@ -1,0 +1,32 @@
+# OCI image for beamline-healthcheck (handbook Ch15). Also the source for the Apptainer SIF.
+# Build context: the committed tree only (packaging/oci/build-oci.sh extracts git archive HEAD).
+# Both stages use the same base, pinned by manifest-list digest (python:3.12-slim, Debian 13,
+# as pulled on 2026-10-07).
+ARG PYTHON_IMAGE=docker.io/library/python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f
+
+FROM ${PYTHON_IMAGE} AS build
+WORKDIR /src
+COPY . .
+# Tests run against the source first; a failing test fails the image build.
+RUN PYTHONPATH=src python -m unittest discover -s tests \
+ && pip wheel --no-cache-dir --no-deps --wheel-dir /wheels .
+
+FROM ${PYTHON_IMAGE}
+ARG VERSION
+ARG REVISION
+LABEL org.opencontainers.image.title="beamline-healthcheck" \
+      org.opencontainers.image.description="Host health check for the beamline lab fleet" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.source="https://gitlab.beamline/beamline/beamline-healthcheck" \
+      org.opencontainers.image.licenses="MIT"
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+# Only the wheel built above is installed, with --no-index: the final image never touches PyPI.
+COPY --from=build /wheels /tmp/wheels
+RUN pip install --no-cache-dir --no-index /tmp/wheels/*.whl \
+ && rm -rf /tmp/wheels \
+ && useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin healthcheck
+# Numeric UID so runtimes can verify non-root (e.g. Kubernetes runAsNonRoot).
+USER 10001
+ENTRYPOINT ["beamline-healthcheck"]

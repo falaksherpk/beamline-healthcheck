@@ -9,9 +9,10 @@ description = "Host health check for the beamline lab fleet, with Prometheus tex
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "Falak Sher" }]
+# License: MIT, in LICENSE (setuptools adds it to the wheel/sdist by default).
 # No `license` key on purpose: setuptools 68 (Ubuntu 24.04, used by the .deb
 # build) rejects the SPDX string form, and setuptools >= 77 deprecates the
-# table form. This is an internal, unpublished tool.
+# table form, so neither form works for both builds.
 
 [project.scripts]
 beamline-healthcheck = "beamline_healthcheck.cli:main"

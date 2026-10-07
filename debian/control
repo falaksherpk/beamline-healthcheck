@@ -1,0 +1,23 @@
+Source: beamline-healthcheck
+Section: admin
+Priority: optional
+Maintainer: Falak Sher <45312905+falaksherpk@users.noreply.github.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-sequence-python3,
+ pybuild-plugin-pyproject,
+ python3-all,
+ python3-setuptools,
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Homepage: https://gitlab.beamline/beamline/beamline-healthcheck
+
+Package: beamline-healthcheck
+Architecture: all
+Depends:
+ ${misc:Depends},
+ ${python3:Depends},
+Description: host health check for the beamline lab fleet
+ Checks free disk space, available memory, load per CPU and optional TCP
+ targets, and exits 0 if every check passes or 1 if any fails. It can also
+ write its results for the Prometheus node_exporter textfile collector.

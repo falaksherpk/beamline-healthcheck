@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beamline-healthcheck"
+version = "1.0.0"
+description = "Host health check for the beamline lab fleet, with Prometheus textfile output"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Falak Sher" }]
+# No `license` key on purpose: setuptools 68 (Ubuntu 24.04, used by the .deb
+# build) rejects the SPDX string form, and setuptools >= 77 deprecates the
+# table form. This is an internal, unpublished tool.
+
+[project.scripts]
+beamline-healthcheck = "beamline_healthcheck.cli:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]

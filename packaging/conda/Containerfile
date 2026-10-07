@@ -1,0 +1,22 @@
+# Clean environment for building beamline-healthcheck's conda package (handbook Ch15).
+# rattler-build is a static binary; it fetches Python and the other build/host/test
+# dependencies from conda-forge for every build, so nothing package-specific lives here.
+# Base pinned by manifest-list digest (ubuntu:24.04 as pulled on 2026-10-07); the binary
+# is pinned by version and checked against the release's published SHA-256.
+FROM docker.io/library/ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
+
+ARG RATTLER_BUILD_VERSION=0.76.1
+ARG RATTLER_BUILD_SHA256=38359a75f4a880442432923d6e984d349bb4134d330edd712eb1cfb2fa80581a
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL -o /usr/local/bin/rattler-build \
+      "https://github.com/prefix-dev/rattler-build/releases/download/v${RATTLER_BUILD_VERSION}/rattler-build-x86_64-unknown-linux-musl" \
+ && echo "${RATTLER_BUILD_SHA256}  /usr/local/bin/rattler-build" | sha256sum -c - \
+ && chmod 755 /usr/local/bin/rattler-build \
+ && rattler-build --version
+
+WORKDIR /build

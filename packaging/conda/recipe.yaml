@@ -1,0 +1,53 @@
+# conda package recipe, v1 format (CEP 13/14), built with rattler-build (handbook Ch15).
+# noarch: python -> one package for every platform. Channel: conda-forge only.
+schema_version: 1
+
+context:
+  name: beamline-healthcheck
+  version: "1.0.0"
+  python_min: "3.12"
+
+package:
+  name: ${{ name }}
+  version: ${{ version }}
+
+source:
+  path: ../..
+
+build:
+  number: 0
+  noarch: python
+  script: python -m pip install . -vv --no-deps --no-build-isolation
+  python:
+    entry_points:
+      - beamline-healthcheck = beamline_healthcheck.cli:main
+
+requirements:
+  host:
+    - python ${{ python_min }}.*
+    - pip
+    - setuptools >=68
+  run:
+    - python >=${{ python_min }}
+
+tests:
+  - python:
+      imports:
+        - beamline_healthcheck
+      pip_check: true
+      python_version: ${{ python_min }}.*
+  - files:
+      source:
+        - tests/
+    requirements:
+      run:
+        - python ${{ python_min }}.*
+    script:
+      - beamline-healthcheck --version
+      - python -m unittest discover -s tests -v
+
+about:
+  homepage: https://gitlab.beamline/beamline/beamline-healthcheck
+  summary: Host health check for the beamline lab fleet, with Prometheus textfile output
+  license: MIT
+  license_file: LICENSE

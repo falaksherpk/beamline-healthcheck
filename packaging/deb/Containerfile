@@ -1,0 +1,13 @@
+# Clean Ubuntu 24.04 environment for building beamline-healthcheck's .deb (handbook Ch15).
+# Only generic tooling is baked in. The package's own Build-Depends are installed in a
+# fresh container for every build (apt-get build-dep), so a Build-Depends missing from
+# debian/control makes the build fail instead of being hidden by the build host.
+# Base pinned by manifest-list digest (ubuntu:24.04 as pulled on 2026-10-07).
+FROM docker.io/library/ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential dpkg-dev lintian \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build

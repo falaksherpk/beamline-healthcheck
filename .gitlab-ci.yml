@@ -1,0 +1,19 @@
+# beamline-healthcheck CI (handbook Ch17). Every job runs on the shell runner on
+# pkg.beamline (tag pkg-native), which takes protected branches and tags only.
+default:
+  tags: [pkg-native]
+
+stages: [check]
+
+# Diagnostic: what a job sees as the runner user (rootless Podman needs
+# XDG_RUNTIME_DIR, a subordinate ID range and its own image store).
+runner-env:
+  stage: check
+  script:
+    - id
+    - echo "HOME=$HOME XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-unset} PWD=$PWD"
+    - ls -A "$HOME"
+    - podman info --format 'rootless={{.Host.Security.Rootless}} cgroups={{.Host.CgroupsVersion}} manager={{.Host.CgroupManager}} graphroot={{.Store.GraphRoot}} runroot={{.Store.RunRoot}}'
+    - podman images --format '{{.Repository}}:{{.Tag}}'
+    - apptainer --version
+    - python3 --version

@@ -1,7 +1,8 @@
 # beamline-healthcheck CI (handbook Ch17). Every job runs on the shell runner on
 # pkg.beamline (tag pkg-native), which takes protected branches and tags only.
-# main and vX.Y.Z tags run the checks and all builds; nothing is published from
-# here yet (publishing on protected tags comes in a later step).
+# main and vX.Y.Z tags run the checks and all builds. Only a protected vX.Y.Z tag
+# publishes: OCI image to the registry, .deb to the signed apt repository, .conda
+# to the channel, and all files kept as release artifacts with SHA256SUMS.
 workflow:
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
@@ -11,7 +12,11 @@ default:
   tags: [pkg-native]
   interruptible: true
 
-stages: [check, build]
+variables:
+  # Hand-over to beamline-publish (pkg role): runner writes, the owner's group reads.
+  PUBLISH_DROP: /var/spool/beamline-publish
+
+stages: [check, build, publish]
 
 # The package's own tests, against the installed package (throwaway venv in the
 # job directory; the build backend comes from PyPI, as in the wheel build).
@@ -57,9 +62,84 @@ conda:
     - packaging/conda/build-conda.sh dist/conda
 
 # One job: the SIF is converted from this commit's image in the runner's local
-# store. Images are only tagged here; pushing (tags only) comes later.
+# store. Images are only tagged here; publish-oci pushes them on release tags.
 oci-sif:
   extends: .build
   script:
     - packaging/oci/build-oci.sh
     - packaging/sif/build-sif.sh dist/sif
+
+# Publishing: protected vX.Y.Z tags only, never interrupted halfway, one at a time.
+# beamline-publish refuses a version that is already published, so a re-run cannot
+# overwrite a package.
+.release:
+  stage: publish
+  interruptible: false
+  resource_group: release
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/ && $CI_COMMIT_REF_PROTECTED == "true"
+
+# Pushes the two tags build-oci.sh made in this pipeline, after checking that both
+# carry this commit's revision label. The job token is used for this push only and
+# its auth file lives in the job directory.
+publish-oci:
+  extends: .release
+  dependencies: []
+  variables:
+    REGISTRY_AUTH_FILE: $CI_PROJECT_DIR/.registry-auth.json
+  script:
+    - |
+      image=gitlab.beamline:5050/beamline/beamline-healthcheck
+      [ "$CI_REGISTRY_IMAGE" = "$image" ] || { echo "refusing: CI_REGISTRY_IMAGE is $CI_REGISTRY_IMAGE, build-oci.sh tags $image"; exit 1; }
+      version=${CI_COMMIT_TAG#v}
+      short=$(git rev-parse --short HEAD)
+      for t in "$version" "$short"; do
+        rev=$(podman image inspect --format '{{index .Labels "org.opencontainers.image.revision"}}' "$image:$t")
+        [ "$rev" = "$CI_COMMIT_SHA" ] || { echo "refusing: $image:$t has revision '$rev', not $CI_COMMIT_SHA"; exit 1; }
+      done
+      printf '%s' "$CI_JOB_TOKEN" | podman login --username gitlab-ci-token --password-stdin "$CI_REGISTRY"
+      for t in "$version" "$short"; do
+        podman push --quiet --digestfile "digest-$t" "$image:$t"
+        echo "pushed $image:$t $(cat "digest-$t")"
+      done
+  after_script:
+    - rm -f "$REGISTRY_AUTH_FILE"
+
+# deb and conda: copy the one built file into the drop directory, publish it as
+# the repository owner (sudoers allows exactly this), then remove the copy.
+publish-deb:
+  extends: .release
+  script:
+    - |
+      set -- dist/deb/*.deb
+      [ "$#" -eq 1 ] && [ -f "$1" ] || { echo "refusing: expected exactly one .deb, found: $*"; exit 1; }
+      f="$PUBLISH_DROP/$(basename "$1")"
+      install -m 0640 "$1" "$f"
+      rc=0; sudo -n -u falak /usr/local/bin/beamline-publish deb "$f" || rc=$?
+      rm -f "$f"
+      [ "$rc" -eq 0 ]
+
+publish-conda:
+  extends: .release
+  script:
+    - |
+      set -- dist/conda/*.conda
+      [ "$#" -eq 1 ] && [ -f "$1" ] || { echo "refusing: expected exactly one .conda, found: $*"; exit 1; }
+      f="$PUBLISH_DROP/$(basename "$1")"
+      install -m 0640 "$1" "$f"
+      rc=0; sudo -n -u falak /usr/local/bin/beamline-publish conda "$f" || rc=$?
+      rm -f "$f"
+      [ "$rc" -eq 0 ]
+
+# The release record: every built file with SHA256SUMS, kept without expiry
+# (the wheel and the SIF are published only here).
+release-files:
+  extends: .release
+  script:
+    - mkdir release
+    - cp dist/wheel/*.whl dist/wheel/*.tar.gz dist/deb/*.deb dist/conda/*.conda dist/sif/*.sif release/
+    - (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+  artifacts:
+    name: "beamline-healthcheck-$CI_COMMIT_TAG"
+    paths: [release/]
+    expire_in: never

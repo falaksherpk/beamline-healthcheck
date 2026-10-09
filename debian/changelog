@@ -1,3 +1,10 @@
+beamline-healthcheck (1.0.1) noble; urgency=medium
+
+  * First release built, tested and published by the CI pipeline on
+    pkg.beamline (handbook Ch17). No change to the program.
+
+ -- Falak Sher <45312905+falaksherpk@users.noreply.github.com>  Fri, 09 Oct 2026 10:59:37 +0000
+
 beamline-healthcheck (1.0.0) noble; urgency=medium
 
   * Initial release.

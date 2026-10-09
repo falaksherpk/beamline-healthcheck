@@ -1,19 +1,65 @@
 # beamline-healthcheck CI (handbook Ch17). Every job runs on the shell runner on
 # pkg.beamline (tag pkg-native), which takes protected branches and tags only.
+# main and vX.Y.Z tags run the checks and all builds; nothing is published from
+# here yet (publishing on protected tags comes in a later step).
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
 default:
   tags: [pkg-native]
+  interruptible: true
 
-stages: [check]
+stages: [check, build]
 
-# Diagnostic: what a job sees as the runner user (rootless Podman needs
-# XDG_RUNTIME_DIR, a subordinate ID range and its own image store).
-runner-env:
+# The package's own tests, against the installed package (throwaway venv in the
+# job directory; the build backend comes from PyPI, as in the wheel build).
+unittest:
   stage: check
   script:
-    - id
-    - echo "HOME=$HOME XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-unset} PWD=$PWD"
-    - ls -A "$HOME"
-    - podman info --format 'rootless={{.Host.Security.Rootless}} cgroups={{.Host.CgroupsVersion}} manager={{.Host.CgroupManager}} graphroot={{.Store.GraphRoot}} runroot={{.Store.RunRoot}}'
-    - podman images --format '{{.Repository}}:{{.Tag}}'
-    - apptainer --version
-    - python3 --version
+    - python3 -m venv .venv
+    - .venv/bin/python -m pip install --quiet --no-cache-dir .
+    - export PATH="$CI_PROJECT_DIR/.venv/bin:$PATH"
+    - beamline-healthcheck --version
+    - python -m unittest discover -s tests -v
+
+version-check:
+  stage: check
+  script:
+    - python3 ci/check-versions.py
+
+# Builds: the Ch15 scripts, unchanged. Each builds from git archive HEAD, so the
+# untracked dist/ and .venv/ in the job directory never enter a package.
+.build:
+  stage: build
+  artifacts:
+    paths: [dist/]
+    expire_in: 1 week
+
+wheel:
+  extends: .build
+  script:
+    - packaging/wheel/build-wheel.sh dist/wheel
+
+# Builder images come from the repository's Containerfiles (bases pinned by
+# digest); Podman's layer cache makes the rebuild cheap after the first run.
+deb:
+  extends: .build
+  script:
+    - podman build --quiet --tag localhost/beamline-deb-builder:noble packaging/deb
+    - packaging/deb/build-deb.sh dist/deb
+
+conda:
+  extends: .build
+  script:
+    - podman build --quiet --tag localhost/beamline-conda-builder:0.76.1 packaging/conda
+    - packaging/conda/build-conda.sh dist/conda
+
+# One job: the SIF is converted from this commit's image in the runner's local
+# store. Images are only tagged here; pushing (tags only) comes later.
+oci-sif:
+  extends: .build
+  script:
+    - packaging/oci/build-oci.sh
+    - packaging/sif/build-sif.sh dist/sif
